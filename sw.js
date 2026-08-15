@@ -3,7 +3,7 @@
    Dadurch startet die App ohne Netz. Im Hintergrund wird still aktualisiert.
    Nutzerdaten liegen nicht hier, sondern in localStorage. */
 
-const VERSION = 'kakebo-v2';
+const VERSION = 'kakebo-v3';
 const SHELL = [
   './',
   './index.html',

@@ -380,7 +380,7 @@ let tab = 'pots';
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 
 function defaultState(){
-  const n = new Date();
+  const n = now();
   const p = (name,type,order) => ({ id:uid(), name, type, target:0, order });
   return {
     version: 1,
@@ -398,6 +398,14 @@ function defaultState(){
 /* ==========================================================================
    3 — FORMATE (de-DE)
    ========================================================================== */
+/* Einzige Zeitquelle der App. Alle Kalenderfragen laufen hier durch — dadurch
+   gibt es genau eine Stelle, die "heute" bestimmt, und Tests können sie
+   festsetzen. Gelesen wird ausschließlich über die lokalen Kalender-Zugriffe
+   (getFullYear/getMonth/getDate), nie über UTC-Zeitstempel: sonst kippt der
+   Kalendertag in Europe/Berlin zwischen 00:00 und 02:00 um einen Tag. */
+let NOW_OVERRIDE = null;
+function now(){ return NOW_OVERRIDE ? new Date(NOW_OVERRIDE) : new Date(); }
+
 const MONTHS = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
 const nf = new Intl.NumberFormat('de-DE',{ minimumFractionDigits:2, maximumFractionDigits:2 });
 
@@ -406,7 +414,7 @@ function eur(c){ return fmt(c) + ' €'; }
 function csvNum(c){ return ((c|0)/100).toFixed(2).replace('.',','); }
 function fmtDate(iso){ if(!iso) return ''; const [y,m,d] = iso.split('-'); return d+'.'+m+'.'+y; }
 function isoOf(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
-function todayISO(){ return isoOf(new Date()); }
+function todayISO(){ return isoOf(now()); }
 function daysInMonth(y,m){ return new Date(y,m,0).getDate(); }
 function monthLabel(y,m){ return MONTHS[m-1]+' '+y; }
 function monthKey(y,m){ return y+'-'+String(m).padStart(2,'0'); }
@@ -425,10 +433,14 @@ function parseAmount(raw){
 /* ==========================================================================
    4 — RECHNEN
    ========================================================================== */
+/* Verbleibende Tage: der heutige zählt mit. Am 15.08. also 31 − 15 + 1 = 17,
+   am letzten Tag des Monats genau 1. Der Wert wird nirgends gespeichert,
+   sondern bei jeder Darstellung neu aus dem Kalendertag bestimmt. Er ist nie
+   kleiner als 1, damit die Division für das Tagesbudget immer definiert ist. */
 function monthContext(){
   const { year, month } = state.current;
   const dim = daysInMonth(year, month);
-  const n = new Date(), cy = n.getFullYear(), cm = n.getMonth()+1;
+  const n = now(), cy = n.getFullYear(), cm = n.getMonth()+1;
   if(cy === year && cm === month){
     const d = n.getDate();
     return { dim, elapsed:d, remaining:dim-d+1, phase:'current' };
@@ -535,6 +547,8 @@ function viewPots(){
       + '<div style="margin-top:13px"><button class="btn" data-act="go-income">Einnahmen verteilen</button></div></div>';
   } else {
     const dayWord = ctx.remaining === 1 ? 'Tag' : 'Tage';
+    const inklHeute = ctx.phase === 'current' ? (ctx.remaining === 1 ? 'Heute ist der letzte Tag des Monats.'
+      : 'Aus den variablen Töpfen, gleichmäßig auf die ' + ctx.remaining + ' verbleibenden Tage verteilt — der heutige zählt mit.') : '';
     head = '<div class="daily' + (varRest<0?' over':'') + '">'
       + '<p class="eyebrow">Heute verfügbar</p>'
       + '<div class="daily-row">'
@@ -547,7 +561,7 @@ function viewPots(){
           ctx.phase === 'past'  ? 'Dieser Monat ist vorbei — Zeit für den Abschluss.' :
           ctx.phase === 'future'? 'Der Monat hat noch nicht begonnen.' :
           varRest < 0 ? 'Die variablen Töpfe sind zusammen um ' + eur(-varRest) + ' überzogen.'
-                      : 'Aus den variablen Töpfen, verteilt auf die restlichen Tage des Monats.'
+                      : inklHeute
         ) + '</p></div>';
   }
 
@@ -601,7 +615,8 @@ function viewMonth(){
 
     + '<section class="sec"><p class="eyebrow">Zeitraum</p><div class="card"><table class="kv"><tbody>'
     + '<tr><td>' + esc(monthLabel(state.current.year, state.current.month)) + '</td><td>' + ctx.dim + ' Tage</td></tr>'
-    + '<tr><td>Verbleibend inkl. heute</td><td>' + (ctx.phase==='current' ? ctx.remaining + ' Tage' : (ctx.phase==='past'?'abgelaufen':'noch nicht begonnen')) + '</td></tr>'
+    + '<tr><td>Verbleibend inkl. heute</td><td>' + (ctx.phase==='current' ? ctx.remaining + (ctx.remaining===1?' Tag':' Tage') : (ctx.phase==='past'?'abgelaufen':'noch nicht begonnen')) + '</td></tr>'
+    + '<tr><td>Heute</td><td>' + fmtDate(todayISO()) + '</td></tr>'
     + '<tr><td>Buchungen</td><td>' + state.current.expenses.length + '</td></tr>'
     + '</tbody></table></div></section>';
 }
@@ -866,7 +881,7 @@ function potDetailBody(id){
     + '<tr><td>Ausgegeben</td><td class="' + (spent>p.target&&p.target>0?'neg':'') + '">' + eur(spent) + '</td></tr>'
     + '<tr class="total"><td>Verbleibend</td><td class="' + (rest<0?'neg':'') + '">' + eur(rest) + '</td></tr>'
     + (p.type==='var' && ctx.phase!=='past' && p.target>0
-        ? '<tr><td>Tagesbudget · ' + ctx.remaining + ' Tage</td><td class="' + (perDay<0?'neg':'') + '">' + eur(perDay) + '</td></tr>' : '')
+        ? '<tr><td>Tagesbudget · noch ' + ctx.remaining + (ctx.remaining===1?' Tag':' Tage') + ' inkl. heute</td><td class="' + (perDay<0?'neg':'') + '">' + eur(perDay) + '</td></tr>' : '')
     + '</tbody></table>'
     + barFor(spent, p.target, ctx)
     + '<div class="btn-row" style="margin-top:16px">'
@@ -1032,7 +1047,7 @@ async function copyText(text){
   }catch(e){ return false; }
 }
 function markExported(){
-  const d = new Date();
+  const d = now();
   state.current.exported = true;
   state.current.exportedAt = fmtDate(isoOf(d)) + ' um ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
   persist();
@@ -1321,8 +1336,44 @@ document.addEventListener('change', ev => {
 document.addEventListener('keydown', ev => {
   if(ev.key === 'Escape' && document.getElementById('sheets').childElementCount) closeSheet();
 });
+/* ---- Tagesabhängige Werte frisch halten ----
+   Verbleibende Tage und Tagesbudget sind reine Rechenergebnisse und stehen
+   nicht im Speicher. Sie müssen aber neu dargestellt werden, sobald sich der
+   Kalendertag ändert. Als installierte App wird das Programm aus dem
+   Hintergrund fortgesetzt statt neu gestartet, und Zeitgeber werden dort
+   gedrosselt oder ganz angehalten — ein Intervall allein genügt deshalb nicht.
+   Abgedeckt werden: Rückkehr in den Vordergrund, Fensterfokus, Wiederherstellung
+   aus dem Seiten-Zwischenspeicher, lokale Mitternacht und ein Intervall als
+   letzte Sicherung. Verglichen wird der Kalendertag als Zeichenkette, nicht
+   über Zeitstempel-Differenzen. */
+let shownDay = null, midnightTimer = null;
+
+function scheduleMidnight(){
+  clearTimeout(midnightTimer);
+  const n = now();
+  const next = new Date(n.getFullYear(), n.getMonth(), n.getDate() + 1, 0, 0, 5);
+  let ms = next - n;
+  if(ms < 1000) ms = 1000;
+  if(ms > 21600000) ms = 21600000;   // höchstens 6 h, damit Zeitumstellung nicht durchrutscht
+  midnightTimer = setTimeout(() => refreshIfDayChanged(), ms);
+}
+function refreshIfDayChanged(force){
+  const t = isoOf(now());
+  if(force || t !== shownDay){
+    shownDay = t;
+    render();
+    rebuildSheets();
+  }
+  scheduleMidnight();
+}
+
 window.addEventListener('pagehide', persistNow);
-document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'hidden') persistNow(); });
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState === 'hidden') persistNow();
+  else refreshIfDayChanged();
+});
+window.addEventListener('focus', () => refreshIfDayChanged());
+window.addEventListener('pageshow', () => refreshIfDayChanged());
 
 /* ==========================================================================
    15 — START
@@ -1350,9 +1401,9 @@ document.addEventListener('visibilitychange', () => { if(document.visibilityStat
   if('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')){
     try{ navigator.serviceWorker.register('./sw.js', { scope: './' }); }catch(e){}
   }
-  /* Datumswechsel um Mitternacht: Tagesbudget neu rechnen. */
-  let day = new Date().getDate();
-  setInterval(()=>{ const d = new Date().getDate(); if(d !== day){ day = d; render(); } }, 60000);
+  shownDay = isoOf(now());
+  scheduleMidnight();
+  setInterval(() => refreshIfDayChanged(), 60000);
 })();
 </script>
 </body>
