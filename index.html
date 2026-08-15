@@ -403,6 +403,10 @@ function defaultState(){
    festsetzen. Gelesen wird ausschließlich über die lokalen Kalender-Zugriffe
    (getFullYear/getMonth/getDate), nie über UTC-Zeitstempel: sonst kippt der
    Kalendertag in Europe/Berlin zwischen 00:00 und 02:00 um einen Tag. */
+/* Sichtbare Kennung der laufenden Fassung. Steht in den Einstellungen und
+   beantwortet die Frage "läuft der neue Stand?" ohne Ratespiel. */
+const APP_VERSION = '4';
+
 let NOW_OVERRIDE = null;
 function now(){ return NOW_OVERRIDE ? new Date(NOW_OVERRIDE) : new Date(); }
 
@@ -1204,7 +1208,10 @@ function sheetSettings(){
     + '<tr><td>Buchungen im Monat</td><td>' + state.current.expenses.length + '</td></tr>'
     + '<tr><td>Archivierte Monate</td><td>' + state.archive.length + '</td></tr>'
     + '<tr><td>Speicherort</td><td style="font-size:12px">' + (REMOTE ? 'Vorschau' : 'Dieser Browser') + '</td></tr>'
+    + '<tr><td>Fassung</td><td>' + APP_VERSION + '</td></tr>'
     + '</tbody></table>'
+    + '<hr class="rule">'
+    + '<button class="btn block" data-act="update-check">Nach Aktualisierung suchen</button>'
     + '<hr class="rule">'
     + '<button class="btn ghost block" data-act="reset" style="color:var(--shu)">Alle Daten löschen</button>'
     + '</div>', {focus:false});
@@ -1289,6 +1296,15 @@ document.addEventListener('click', ev => {
     case 'savings-take': sheetSavingsTake(); break;
     case 'savings-take-save': saveSavingsTake(); break;
 
+    case 'update-check':
+      persistNow(); toast('Suche nach neuer Fassung…');
+      if('serviceWorker' in navigator){
+        navigator.serviceWorker.getRegistration()
+          .then(r => r ? r.update() : null)
+          .catch(()=>{})
+          .then(()=> setTimeout(()=> location.reload(true), 600));
+      } else setTimeout(()=> location.reload(), 400);
+      break;
     case 'backup-dl': backupDownload(); break;
     case 'backup-up': document.getElementById('s-file').click(); break;
     case 'restore-yes':

@@ -3,7 +3,7 @@
    Dadurch startet die App ohne Netz. Im Hintergrund wird still aktualisiert.
    Nutzerdaten liegen nicht hier, sondern in localStorage. */
 
-const VERSION = 'kakebo-v3';
+const VERSION = 'kakebo-v4';
 const SHELL = [
   './',
   './index.html',
@@ -36,17 +36,34 @@ self.addEventListener('fetch', e => {
   if (req.method !== 'GET') return;
   if (new URL(req.url).origin !== self.location.origin) return;
 
+  // Das Dokument selbst: erst das Netz, dann der Zwischenspeicher.
+  // Damit ist eine neue Fassung sofort beim ersten Start da, sobald das Gerät
+  // online ist. Ohne Netz greift der letzte gespeicherte Stand — die App
+  // startet also weiterhin im Flugmodus.
+  if (req.mode === 'navigate' || req.destination === 'document') {
+    e.respondWith(
+      fetch(req).then(res => {
+        if (res && res.ok) {
+          const copy = res.clone();
+          caches.open(VERSION).then(c => c.put('./index.html', copy));
+        }
+        return res;
+      }).catch(() => caches.match('./index.html', { ignoreSearch: true })
+                       .then(hit => hit || caches.match('./')))
+    );
+    return;
+  }
+
+  // Alles Übrige (Icons, Manifest): erst Zwischenspeicher, still auffrischen.
   e.respondWith(
     caches.match(req, { ignoreSearch: true }).then(hit => {
-      // Im Hintergrund frische Fassung holen und ablegen.
       const net = fetch(req).then(res => {
         if (res && res.ok) {
           const copy = res.clone();
           caches.open(VERSION).then(c => c.put(req, copy));
         }
         return res;
-      }).catch(() => hit || caches.match('./index.html'));
-
+      }).catch(() => hit);
       return hit || net;
     })
   );
